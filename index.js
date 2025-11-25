@@ -138,50 +138,48 @@ if (chatType === "private") {
   return res.sendStatus(200);
 }
 
-  // =============== 情况 2：客服在群里回复 ===============
-  if (chatType === "supergroup") {
+// =============== 情况 2：客服在群里回复 ===============
+if (chatType === "supergroup") {
 
-    // 只处理我们的客服群
-    if (msg.chat.id !== SUPPORT_CHAT_ID) return res.sendStatus(200);
+  // 只处理我们的客服群（注意类型要一致）
+  if (String(msg.chat.id) !== SUPPORT_CHAT_ID) return res.sendStatus(200);
 
-    const topicId = msg.message_thread_id;
-    if (!topicId) return res.sendStatus(200);
+  const topicId = msg.message_thread_id;
+  if (!topicId) return res.sendStatus(200);   // 不在话题里就忽略
 
-    if (msg.from.is_bot) return res.sendStatus(200);
+  if (msg.from.is_bot) return res.sendStatus(200); // 不处理机器人消息
 
-    // 找对应的客户
-    let customerId = topicToCustomer.get(topicId);
-    if (!customerId) return res.sendStatus(200);
-
-    try {
-      // 图片
-      if (msg.photo) {
-        const fileId = msg.photo[msg.photo.length - 1].file_id;
-        await axios.post(`${API}/sendPhoto`, {
-          chat_id: customerId,
-          photo: fileId,
-          caption: msg.caption || ""
-        });
-        return res.sendStatus(200);
-      }
-
-      // 文本
-      if (msg.text) {
-        await axios.post(`${API}/sendMessage`, {
-          chat_id: customerId,
-          text: msg.text
-        });
-      }
-
-    } catch (e) {
-      console.error("客服回复失败：", e.response?.data || e.message);
-    }
-
+  const customerId = topicToCustomer.get(topicId);
+  if (!customerId) {
+    console.log("没找到对应客户 topicId =", topicId);
     return res.sendStatus(200);
   }
 
-  res.sendStatus(200);
-});
+  try {
+    // 图片
+    if (msg.photo) {
+      const fileId = msg.photo[msg.photo.length - 1].file_id;
+      await axios.post(`${API}/sendPhoto`, {
+        chat_id: customerId,
+        photo: fileId,
+        caption: msg.caption || ""
+      });
+      return res.sendStatus(200);
+    }
+
+    // 文本
+    if (msg.text) {
+      await axios.post(`${API}/sendMessage`, {
+        chat_id: customerId,
+        text: msg.text
+      });
+    }
+  } catch (e) {
+    console.error("客服回复失败：", e.response?.data || e.message);
+  }
+
+  return res.sendStatus(200);
+}
 
 // ===================== 启动服务器 =====================
 app.listen(Number(process.env.PORT) || 3000, () => {
