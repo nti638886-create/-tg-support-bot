@@ -7,7 +7,7 @@ app.use(express.json());
 // ===================== 配置 =====================
 const TOKEN = process.env.BOT_TOKEN;
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
-const SUPPORT_CHAT_ID = Number(process.env.SUPPORT_CHAT_ID); // -100 开头
+const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID; // -100 开头
 
 const API = `https://api.telegram.org/bot${TOKEN}`;
 
