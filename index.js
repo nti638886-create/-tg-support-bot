@@ -145,18 +145,18 @@ if (chatType === "supergroup") {
   if (String(msg.chat.id) !== SUPPORT_CHAT_ID) return res.sendStatus(200);
 
   const topicId = msg.message_thread_id;
-  if (!topicId) return res.sendStatus(200);   // 不在话题里就忽略
+  if (!topicId) return res.sendStatus(200);   // 必须在话题中发消息
 
-  if (msg.from.is_bot) return res.sendStatus(200); // 不处理机器人消息
+  if (msg.from.is_bot) return res.sendStatus(200); // 忽略机器人消息
 
   const customerId = topicToCustomer.get(topicId);
   if (!customerId) {
-    console.log("没找到对应客户 topicId =", topicId);
+    console.log("⚠️ 没找到对应客户 topicId =", topicId);
     return res.sendStatus(200);
   }
 
   try {
-    // 图片
+    // 图片转发
     if (msg.photo) {
       const fileId = msg.photo[msg.photo.length - 1].file_id;
       await axios.post(`${API}/sendPhoto`, {
@@ -167,13 +167,14 @@ if (chatType === "supergroup") {
       return res.sendStatus(200);
     }
 
-    // 文本
+    // 文本转发
     if (msg.text) {
       await axios.post(`${API}/sendMessage`, {
         chat_id: customerId,
         text: msg.text
       });
     }
+
   } catch (e) {
     console.error("客服回复失败：", e.response?.data || e.message);
   }
