@@ -6,16 +6,16 @@ app.use(express.json());
 
 // ===================== 配置 =====================
 const TOKEN = process.env.BOT_TOKEN;
+const GROUP_CHAT_ID = process.env.GROUP_CHAT_ID;
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
-const SUPPORT_CHAT_ID = process.env.SUPPORT_CHAT_ID; // -100 开头（必须是字符串）
 
 console.log("🔧 BOT_TOKEN =", TOKEN);
-console.log("🔧 SUPPORT_CHAT_ID =", SUPPORT_CHAT_ID, "type =", typeof SUPPORT_CHAT_ID);
+console.log("🔧 GROUP_CHAT_ID =", GROUP_CHAT_ID);
 console.log("🔧 WEBHOOK_URL =", WEBHOOK_URL);
 
 const API = `https://api.telegram.org/bot${TOKEN}`;
 
-// 内存映射（重启会丢失）
+// 内存映射
 const customerToTopic = new Map(); // customerId -> topicId
 const topicToCustomer = new Map(); // topicId -> customerId
 
@@ -32,7 +32,7 @@ async function setWebhook() {
 }
 setWebhook();
 
-// ===================== 日志函数 =====================
+// ===================== 日志 =====================
 function logMessage(prefix, msg) {
   console.log(
     `${prefix} chatId=${msg.chat.id} type=${msg.chat.type} ` +
@@ -41,7 +41,7 @@ function logMessage(prefix, msg) {
   );
 }
 
-// ===================== 创建 / 获取话题 =====================
+// ===================== 创建话题 =====================
 async function getOrCreateTopic(customer) {
   const customerId = customer.id;
 
@@ -49,25 +49,12 @@ async function getOrCreateTopic(customer) {
     return customerToTopic.get(customerId);
   }
 
-  const username = customer.username ? `@${customer.username}` : "无";
-  const name =
-    `${customer.first_name || ""} ${customer.last_name || ""}`.trim() || "无";
-  const title = `客户 #${customerId}（${username}）`;
+  const title = `客户 ${customerId}`;
 
-  console.log("🧵 创建话题：", title, "chat_id =", SUPPORT_CHAT_ID);
-
-  // 可选：调试 getChat，确认 chat_id 是否可用
-  try {
-    const chatInfo = await axios.get(`${API}/getChat`, {
-      params: { chat_id: SUPPORT_CHAT_ID }
-    });
-    console.log("getChat 结果：", chatInfo.data?.result?.title);
-  } catch (e) {
-    console.error("getChat 失败：", e.response?.data || e.message);
-  }
+  console.log("🧵 创建话题：", title);
 
   const res = await axios.post(`${API}/createForumTopic`, {
-    chat_id: SUPPORT_CHAT_ID,
+    chat_id: GROUP_CHAT_ID,
     name: title
   });
 
@@ -81,7 +68,7 @@ async function getOrCreateTopic(customer) {
 }
 
 // ===================== 主 Webhook =====================
-app.post("/", async (req, res) => {
+app.post("/webhook", async (req, res) => {
   const update = req.body;
   const msg = update.message;
   if (!msg) return res.sendStatus(200);
@@ -96,24 +83,18 @@ app.post("/", async (req, res) => {
     const customerId = customer.id;
 
     try {
-      // ------------------ 自动欢迎新用户（只发一次） ------------------
+      // 自动欢迎（只发一次）
       if (!customerToTopic.has(customerId)) {
-        const botInfo = await axios.get(`${API}/getMe`);
-        const botName =
-          botInfo.data?.result?.username ||
-          botInfo.data?.result?.first_name ||
-          "mi asistente";
-
         await axios.post(`${API}/sendMessage`, {
           chat_id: customerId,
-          text: `¡Hola cariño! Soy ${botName} 🤖\nEstoy aquí para ayudarte, ¿en qué necesitas apoyo?`
+          text: `Hola cariño ❤️\nSoy tu asistente, ¿en qué puedo ayudarte?`
         });
       }
 
-      // ------------------ 创建或获取话题 ------------------
+      // 获取 / 创建话题
       const topicId = await getOrCreateTopic(customer);
 
-      // ------------------ 构建内容 ------------------
+      // -------- 构建内容（无头部） --------
       let content = msg.text || "";
       if (!content) {
         if (msg.photo) content = "[Imagen]";
@@ -121,30 +102,20 @@ app.post("/", async (req, res) => {
         else content = "[Mensaje no textual]";
       }
 
-      const username = customer.username ? `@${customer.username}` : "no";
-      const fullName =
-        `${customer.first_name || ""} ${customer.last_name || ""}`.trim() ||
-        "no";
-
-      const header =
-        `📩 Mensaje del cliente\n` +
-        `ID: ${customerId}\nUsuario: ${username}\nNombre: ${fullName}\n`;
-
-      // ------------------ 发到话题 ------------------
+      // ---- 把消息发到客服群对应话题（无客户信息前缀）----
       await axios.post(`${API}/sendMessage`, {
-        chat_id: SUPPORT_CHAT_ID,
+        chat_id: GROUP_CHAT_ID,
         message_thread_id: topicId,
-        text: `${header}Contenido:\n${content}`
+        text: content
       });
 
-      // ------------------ 图片处理 ------------------
+      // 图片处理
       if (msg.photo) {
         const fileId = msg.photo[msg.photo.length - 1].file_id;
         await axios.post(`${API}/sendPhoto`, {
-          chat_id: SUPPORT_CHAT_ID,
+          chat_id: GROUP_CHAT_ID,
           message_thread_id: topicId,
-          photo: fileId,
-          caption: `Imagen enviada por el cliente (ID ${customerId})`
+          photo: fileId
         });
       }
     } catch (e) {
@@ -154,21 +125,21 @@ app.post("/", async (req, res) => {
     return res.sendStatus(200);
   }
 
-  // =============== 情况 2：客服在群里回复 ===============
+  // =============== 情况 2：客服在群内回复 ===============
   if (chatType === "supergroup") {
-    // 只处理我们的客服群（注意：左边转字符串比较）
-    if (String(msg.chat.id) !== SUPPORT_CHAT_ID) {
+    if (String(msg.chat.id) !== GROUP_CHAT_ID) {
       return res.sendStatus(200);
     }
 
     const topicId = msg.message_thread_id;
-    if (!topicId) return res.sendStatus(200); // 必须在话题里回复
+    if (!topicId) return res.sendStatus(200);
 
-    if (msg.from.is_bot) return res.sendStatus(200); // 不处理机器人消息
+    // 不处理机器人消息
+    if (msg.from.is_bot) return res.sendStatus(200);
 
     const customerId = topicToCustomer.get(topicId);
     if (!customerId) {
-      console.log("⚠️ 没找到对应客户 topicId =", topicId);
+      console.log("⚠️ 找不到对应客户 topicId =", topicId);
       return res.sendStatus(200);
     }
 
@@ -198,7 +169,6 @@ app.post("/", async (req, res) => {
     return res.sendStatus(200);
   }
 
-  // 其他类型忽略
   return res.sendStatus(200);
 });
 
